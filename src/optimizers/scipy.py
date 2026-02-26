@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from .base import Optimizer
+from src.core.interfaces import Optimizer
 
 try:
     from scipy.optimize import minimize

@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import List
-from .base import DataSource
+from src.core.interfaces import DataSource
 
 
 class DatabricksDataSource(DataSource):

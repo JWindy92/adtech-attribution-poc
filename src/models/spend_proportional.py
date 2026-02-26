@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import List
-from .base import AttributionModel
+from src.core.interfaces import AttributionModel
 
 
 class SpendProportionalModel(AttributionModel):

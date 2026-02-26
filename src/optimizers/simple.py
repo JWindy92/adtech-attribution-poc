@@ -1,5 +1,5 @@
 import pandas as pd
-from .base import Optimizer
+from src.core.interfaces import Optimizer
 
 
 class SimpleOptimizer(Optimizer):

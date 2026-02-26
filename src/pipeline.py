@@ -1,9 +1,4 @@
-import pandas as pd
-from src.datasources.base import DataSource
-from src.transformers.base import Transformer
-from src.models.base import AttributionModel
-from src.optimizers.base import Optimizer
-
+from src.core.interfaces import Optimizer, AttributionModel, DataSource, Transformer
 
 class Pipeline:
     def __init__(

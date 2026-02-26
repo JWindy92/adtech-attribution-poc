@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import List, Dict
-from .base import Transformer
+from src.core.interfaces import Transformer
 
 
 class AdstockSaturationTransformer(Transformer):

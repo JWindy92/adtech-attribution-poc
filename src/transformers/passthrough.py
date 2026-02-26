@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import List
-from .base import Transformer
+from src.core.interfaces import Transformer
 
 
 class PassthroughTransformer(Transformer):

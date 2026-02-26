@@ -1,12 +1,12 @@
 import pandas as pd
 from pathlib import Path
 from typing import List
-from .base import DataSource
+from src.core.interfaces import DataSource
 
 
 class CSVDataSource(DataSource):
     REQUIRED_COLUMNS = ['week', 'conversions']
-    MEDIA_COLUMNS = ['ctv_spend', 'social_spend', 'search_spend', 'linear_tv_spend']
+    MEDIA_COLUMNS = ['ctv_spend', 'social_spend', 'search_spend', 'linear_tv_spend'] #TODO: dont hardcode this
     
     def __init__(self, data_dir="data"):
         self.data_dir = Path(data_dir)

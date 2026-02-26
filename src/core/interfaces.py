@@ -19,6 +19,7 @@ class Transformer(ABC):
         return TransformerChain([self, other])
     
 class AttributionModel(ABC):
+    # TODO: consider a different solution than having to pass raw_df to fit() for models that need it - maybe a separate method or something else
     @abstractmethod
     def fit(self, df: pd.DataFrame, media_columns: List[str], raw_df: pd.DataFrame = None) -> pd.DataFrame: ...
 
