@@ -7,8 +7,11 @@ class SpendProportionalModel(AttributionModel):
     def __init__(self):
         self.metrics = None
         
-    def fit(self, df: pd.DataFrame, media_columns: List[str]) -> pd.DataFrame:
-        total_spend = df[media_columns].sum()
+    def fit(self, df: pd.DataFrame, media_columns: List[str], raw_df: pd.DataFrame = None) -> pd.DataFrame:
+        if raw_df is None:
+            raw_df = df
+        
+        total_spend = raw_df[media_columns].sum()
         total_spend_sum = total_spend.sum()
         
         attribution = {}

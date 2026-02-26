@@ -28,7 +28,7 @@ class Pipeline:
         
         self.transformed_data = self.transformer.apply_transforms(self.raw_data, media_columns)
         
-        self.metrics = self.attribution_model.fit(self.transformed_data, media_columns)
+        self.metrics = self.attribution_model.fit(self.transformed_data, media_columns, raw_df=self.raw_data)
         
         total_budget = self.raw_data[media_columns].sum().sum()
         self.optimization_results = self.optimizer.optimize(self.metrics, total_budget)
