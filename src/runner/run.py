@@ -2,10 +2,11 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.transformers import PassthroughTransformer
+from src.transformers import PassthroughTransformer, AdstockTransformer, SaturationTransformer
 from src.models import SpendProportionalModel
 from src.datasources.csv import CSVDataSource
 from src.optimizers import ScipyOptimizer
+import src.config as config
 
 def main():
     csv_dir = Path(__file__).parent.parent.parent / "data"
@@ -14,7 +15,11 @@ def main():
     media_columns = dataSource.get_media_columns(raw_data)
     print(raw_data.head())
 
-    transformer = PassthroughTransformer()
+    passthrough = PassthroughTransformer()
+    adstock = AdstockTransformer(adstock_params=config.DEFAULT_ADSTOCK_PARAMS)
+    saturation = SaturationTransformer(saturation_params=config.DEFAULT_SATURATION_PARAMS)
+
+    transformer = passthrough.then(adstock).then(saturation)
     transformed_data = transformer.apply_transforms(raw_data, media_columns) 
     print(transformed_data.head())
 

@@ -1,1 +1,0 @@
-media_columns = ['ctv_spend', 'social_spend', 'search_spend', 'linear_tv_spend']
