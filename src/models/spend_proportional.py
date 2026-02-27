@@ -26,6 +26,7 @@ class SpendProportionalModel(AttributionModel):
             metrics.append({
                 'channel': channel,
                 'total_spend': total_spend[channel],
+                'spend_pct': attr_pct,
                 'attribution_pct': attr_pct,
                 'attributed_conversions': total_conversions * attr_pct,
                 'cost_per_conversion': total_spend[channel] / (total_conversions * attr_pct) if attr_pct > 0 else 0

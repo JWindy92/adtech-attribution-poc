@@ -1,9 +1,13 @@
+
+# TODO: How to calculate ideal values
+
 DEFAULT_ADSTOCK_PARAMS = {
     'ctv_spend':       {'decay': 0.7, 'max_lag': 8},
     'linear_tv_spend': {'decay': 0.6, 'max_lag': 6},
     'search_spend':    {'decay': 0.3, 'max_lag': 2},
     'social_spend':    {'decay': 0.5, 'max_lag': 4},
 }
+
 
 DEFAULT_SATURATION_PARAMS = {
     'ctv_spend':       {'alpha': 1.2, 'gamma': 100000},

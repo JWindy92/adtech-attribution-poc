@@ -34,7 +34,8 @@ class BayesianMMMModel(AttributionModel):
         with pm.Model() as self.model:
             intercept = pm.Normal('intercept', mu=y.mean(), sigma=y.std())
             
-            betas = pm.HalfNormal('betas', sigma=1, shape=n_channels)
+            # betas = pm.HalfNormal('betas', sigma=1, shape=n_channels)
+            betas = pm.HalfNormal('betas', sigma=y.mean() / (X.mean() * n_channels + 1e-8), shape=n_channels)
             
             sigma = pm.HalfNormal('sigma', sigma=y.std())
             
@@ -50,18 +51,39 @@ class BayesianMMMModel(AttributionModel):
                 progressbar=False
             )
         
+        self.metrics = self._compute_metrics(df, raw_df, media_columns)
+        return self.metrics
+
+    def _compute_metrics(self, df: pd.DataFrame, raw_df: pd.DataFrame, media_columns: List[str]) -> pd.DataFrame:
+        """
+        Compute attribution metrics from the posterior trace.
+        Separated from fit() so metrics math can be tested without running MCMC.
+
+        Key invariants:
+        - contributions = beta_means * transformed_spend  (NOT raw dollars)
+        - attributed_conversions sums to total_conversions minus baseline
+        """
         beta_means = self.trace.posterior['betas'].mean(dim=['chain', 'draw']).values
-        
+
         total_spend = raw_df[media_columns].sum()
-        contributions = beta_means * total_spend.values
+        transformed_spend = df[media_columns].sum()
+        contributions = beta_means * transformed_spend.values
         total_attributed = contributions.sum()
-        
-        attribution_pct = (contributions / total_attributed) * 100 if total_attributed > 0 else np.zeros(n_channels)
-        attributed_conversions = (contributions / total_attributed) * df['conversions'].sum() if total_attributed > 0 else np.zeros(n_channels)
-        cost_per_conversion = total_spend.values / attributed_conversions
-        cost_per_conversion = np.where(attributed_conversions > 0, cost_per_conversion, np.inf)
-        
-        self.metrics = pd.DataFrame({
+
+        attribution_pct = (contributions / total_attributed) * 100 if total_attributed > 0 else np.zeros(len(media_columns))
+
+        intercept_mean = float(self.trace.posterior['intercept'].mean(dim=['chain', 'draw']).values)
+        baseline_total = intercept_mean * len(df)
+        media_conversions = max(df['conversions'].sum() - baseline_total, 0)
+        attributed_conversions = (contributions / total_attributed) * media_conversions if total_attributed > 0 else np.zeros(len(media_columns))
+
+        cost_per_conversion = np.where(
+            attributed_conversions > 0,
+            total_spend.values / attributed_conversions,
+            np.inf
+        )
+
+        return pd.DataFrame({
             'channel': media_columns,
             'total_spend': total_spend.values,
             'attribution_pct': attribution_pct,
@@ -69,8 +91,6 @@ class BayesianMMMModel(AttributionModel):
             'cost_per_conversion': cost_per_conversion,
             'beta_coefficient': beta_means
         })
-        
-        return self.metrics
     
     def get_contributions(self) -> pd.DataFrame:
         return self.metrics

@@ -4,9 +4,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.transformers import PassthroughTransformer, AdstockTransformer, SaturationTransformer
 from src.models import SpendProportionalModel
+from src.models.bayesian_mmm import BayesianMMMModel
 from src.datasources.csv import CSVDataSource
 from src.optimizers import ScipyOptimizer
 import src.config as config
+from src.pipeline import Pipeline
 
 def main():
     csv_dir = Path(__file__).parent.parent.parent / "data"
@@ -23,7 +25,7 @@ def main():
     transformed_data = transformer.apply_transforms(raw_data, media_columns) 
     print(transformed_data.head())
 
-    model = SpendProportionalModel()
+    model = BayesianMMMModel(samples=2000, tune=1000, target_accept=0.95)
     metrics = model.fit(transformed_data, media_columns, raw_df=raw_data)
 
     optimizer = ScipyOptimizer()
@@ -31,5 +33,33 @@ def main():
     optimization_results = optimizer.optimize(metrics, total_budget)
 
     print(optimization_results.head())
+
+def run_pipeline():
+    csv_dir = Path(__file__).parent.parent.parent / "data"
+    dataSource = CSVDataSource(str(csv_dir))
+
+    adstock = AdstockTransformer(adstock_params=config.DEFAULT_ADSTOCK_PARAMS)
+    saturation = SaturationTransformer(saturation_params=config.DEFAULT_SATURATION_PARAMS)
+
+    transformer = adstock.then(saturation)
+    
+    model = BayesianMMMModel(samples=2000, tune=2000, target_accept=0.95)
+    optimizer = ScipyOptimizer(method="saturation")
+
+    pipeline = Pipeline(
+        data_source=dataSource,
+        transformer=transformer,
+        attribution_model=model,
+        optimizer=optimizer
+    )
+
+    results = pipeline.run('synthetic_mmm_data.csv')
+    metrics = results['metrics']
+    optimization = results['optimization']
+    print(optimization.head())
+    metrics.to_csv('bayesian_mmm_metrics.csv', index=False)
+    optimization.to_csv('bayesian_mmm_optimization.csv', index=False)
+
+
 if __name__ == "__main__":
-    main()
+    run_pipeline()

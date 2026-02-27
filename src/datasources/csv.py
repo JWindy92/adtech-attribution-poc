@@ -5,6 +5,7 @@ from src.core.interfaces import DataSource
 
 
 class CSVDataSource(DataSource):
+    #TODO: this is hard coded and specific to the synthetic data - need to make more flexible for real world use
     REQUIRED_COLUMNS = ['week', 'conversions']
     MEDIA_COLUMNS = ['ctv_spend', 'social_spend', 'search_spend', 'linear_tv_spend'] #TODO: dont hardcode this
     

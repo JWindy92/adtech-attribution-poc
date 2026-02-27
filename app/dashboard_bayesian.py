@@ -8,12 +8,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 from src.pipeline import Pipeline
 from src.datasources.csv import CSVDataSource
-from src.transformers.passthrough import PassthroughTransformer
-from src.transformers.adstock_saturation import AdstockSaturationTransformer
+from src.transformers import AdstockTransformer, SaturationTransformer, PassthroughTransformer
 from src.models.spend_proportional import SpendProportionalModel
 from src.models.bayesian_mmm import BayesianMMMModel
 from src.optimizers.simple import SimpleOptimizer
 from src.optimizers.scipy import ScipyOptimizer
+import src.config as config
 
 
 @st.cache_data
@@ -34,26 +34,17 @@ def load_simple_pipeline():
 @st.cache_resource
 def load_bayesian_pipeline():
     data_dir = Path(__file__).parent.parent / "data"
-    
-    adstock_params = {
-        'ctv_spend': {'decay': 0.7, 'max_lag': 8},
-        'linear_tv_spend': {'decay': 0.6, 'max_lag': 6},
-        'search_spend': {'decay': 0.3, 'max_lag': 2},
-        'social_spend': {'decay': 0.5, 'max_lag': 4}
-    }
-    
-    saturation_params = {
-        'ctv_spend': {'alpha': 1.2, 'gamma': 100000},
-        'linear_tv_spend': {'alpha': 1.0, 'gamma': 150000},
-        'search_spend': {'alpha': 1.5, 'gamma': 40000},
-        'social_spend': {'alpha': 1.3, 'gamma': 25000}
-    }
+
+    adstock = AdstockTransformer(adstock_params=config.DEFAULT_ADSTOCK_PARAMS)
+    saturation = SaturationTransformer(saturation_params=config.DEFAULT_SATURATION_PARAMS)
+
+    transformer = adstock.then(saturation)
     
     pipeline = Pipeline(
         data_source=CSVDataSource(str(data_dir)),
-        transformer=AdstockSaturationTransformer(adstock_params, saturation_params),
-        attribution_model=BayesianMMMModel(samples=1000, tune=500),
-        optimizer=ScipyOptimizer()
+        transformer=transformer,
+        attribution_model=BayesianMMMModel(samples=2000, tune=2000, target_accept=0.95),
+        optimizer=ScipyOptimizer(method="saturation")
     )
     
     results = pipeline.run("synthetic_mmm_data.csv")
@@ -100,17 +91,17 @@ def main():
                      title='Attribution by Channel',
                      color='channel')
         fig.update_layout(yaxis_title='Attribution %', xaxis_title='Channel', showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     
     with col2:
         fig = px.bar(metrics, x='channel', y='cost_per_conversion',
                      title='Cost per Conversion',
                      color='channel')
         fig.update_layout(yaxis_title='Cost per Conversion ($)', xaxis_title='Channel', showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     
     st.subheader("Attribution Metrics")
-    st.dataframe(metrics, use_container_width=True)
+    st.dataframe(metrics, width='stretch')
     
     st.header("Budget Optimization Recommendations")
     
@@ -130,10 +121,10 @@ def main():
                          marker_color='darkblue'))
     fig.update_layout(barmode='group', title='Current vs Optimal Budget Allocation',
                      yaxis_title='Spend ($)', xaxis_title='Channel')
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     st.subheader("Optimization Details")
-    st.dataframe(optimization_results, use_container_width=True)
+    st.dataframe(optimization_results, width='stretch')
     
     total_budget = metrics['total_spend'].sum()
     st.metric("Total Budget", f"${total_budget:,.0f}")
