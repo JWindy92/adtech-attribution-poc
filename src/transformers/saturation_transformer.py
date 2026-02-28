@@ -37,28 +37,22 @@ class SaturationTransformer(Transformer):
     def apply_saturation(self, x: np.ndarray, alpha: float, gamma: float) -> np.ndarray:
         return (x**alpha) / (gamma**alpha + x**alpha)
 
-    def apply_transforms(
-        self, df: pd.DataFrame, media_columns: List[str]
-    ) -> pd.DataFrame:
+    def apply_transforms(self, df: pd.DataFrame, media_columns: List[str]) -> pd.DataFrame:
         df_transformed = df.copy()
         if not self.saturation_params:
-            print("calculating saturation parameters")
-            self.calculate_saturation_params(
-                df_transformed, media_columns=media_columns
-            )
+            self.calculate_saturation_params(df_transformed, media_columns=media_columns)
 
         for col in media_columns:
-            original = df[col].values
-            transformed = original.copy()
-
             if col in self.saturation_params:
                 params = self.saturation_params[col]
-                transformed = self.apply_saturation(
-                    transformed,
-                    alpha=params.get("alpha", 1.0),
-                    gamma=params.get("gamma", np.mean(original)),
+                saturated = self.apply_saturation(
+                    df[col].values,
+                    alpha=params['alpha'],
+                    gamma=params['gamma']
                 )
-
-            df_transformed[col] = transformed
+                # Use a new column name
+                df_transformed[f"{col}_saturated"] = saturated
+            else:
+                df_transformed[f"{col}_saturated"] = df[col]
 
         return df_transformed
