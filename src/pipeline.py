@@ -29,7 +29,7 @@ class Pipeline:
 
         print(self.transformed_data.head())
         total_spend = self.raw_data[media_columns].sum()  # per-channel, for metrics
-        total_budget = total_spend.sum()
+        total_budget = total_spend.sum() / 52
         self.metrics = self.attribution_model.fit(
             self.transformed_data, media_columns, total_spend=total_spend
         )

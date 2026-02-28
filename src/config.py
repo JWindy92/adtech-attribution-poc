@@ -27,9 +27,9 @@ class AppConfig:
         self.saturation_params = DEFAULT_SATURATION_PARAMS
         self.media_columns = [
             "ctv_spend",
-            "social_spend",
-            "search_spend",
             "linear_tv_spend",
+            "search_spend",
+            "social_spend",
         ]
 
 

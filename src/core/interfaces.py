@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import pandas as pd
 from typing import List
+from src.core.context import AppContext
 
 class DataSource(ABC):
     @abstractmethod
@@ -29,3 +30,13 @@ class AttributionModel(ABC):
 class Optimizer(ABC):
     @abstractmethod
     def optimize(self, metrics: pd.DataFrame, total_budget: float) -> pd.DataFrame: ...
+
+
+class ContextualProcess(ABC):
+    """Any process that needs shared application state."""
+
+    def __init__(self, ctx: AppContext):
+        self.ctx = ctx
+
+    @abstractmethod
+    def run(self) -> None: ...

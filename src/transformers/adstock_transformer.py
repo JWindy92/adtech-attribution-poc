@@ -5,7 +5,8 @@ from src.core.interfaces import Transformer
 
 
 class AdstockTransformer(Transformer):
-    def __init__(self, adstock_params=None):
+    def __init__(self, ctx, adstock_params=None):
+        self.context = ctx
         self.adstock_params = adstock_params or {}
     
     def apply_adstock(self, x: np.ndarray, decay: float, max_lag: int) -> np.ndarray:
