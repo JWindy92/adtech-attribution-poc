@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import List
 from src.core.interfaces import Optimizer
-from src.config import APP_CONFIG, DEFAULT_SATURATION_PARAMS
+from src.core.context import AppContext 
 from pprint import pprint
 
 try:
@@ -14,7 +14,8 @@ except ImportError:
 
 
 class ScipyOptimizer(Optimizer):
-    def __init__(self, min_channel_budget=1000, method="naive", epsilon=1e-8):
+    def __init__(self, ctx: AppContext, min_channel_budget=1000, method="naive", epsilon=1e-8):
+        self.ctx = ctx
         self.min_channel_budget = min_channel_budget
         self.epsilon = epsilon
         self.method = method
@@ -22,11 +23,6 @@ class ScipyOptimizer(Optimizer):
     def optimize(self, metrics, total_budget) -> pd.DataFrame:
         if not SCIPY_AVAILABLE:
             raise ImportError("SciPy is required. Install with: pip install scipy")
-
-        # print("METRICS IN:")
-        # print(metrics.head())
-        print("SATURATION PARAMS:")
-        pprint(APP_CONFIG.saturation_params)
 
         # optimized_allocation = self._optimize_naive(metrics, total_budget)
         optimized_allocation = self._optimize_saturation_aware(metrics, total_budget)
@@ -51,7 +47,7 @@ class ScipyOptimizer(Optimizer):
         self,
         saturation_params: dict,
     ) -> tuple[np.ndarray, np.ndarray]:
-        media_columns = APP_CONFIG.media_columns
+        media_columns = self.ctx.config.channels
         alphas = np.array([saturation_params[ch]["alpha"] for ch in media_columns])
         gammas = np.array([saturation_params[ch]["gamma"] for ch in media_columns])
         return alphas, gammas
@@ -72,15 +68,17 @@ class ScipyOptimizer(Optimizer):
         allocation: np.ndarray,
         alphas: np.ndarray,
         gammas: np.ndarray,
-        baseline_revenue: np.ndarray,
+        beta_coefficients: np.ndarray,  # <-- Use betas instead
     ) -> float:
         saturation = self.hill_saturation(allocation, alphas, gammas)
-        return -(baseline_revenue * saturation).sum()
+        return -(beta_coefficients * saturation).sum()
 
     def run_optimizer(self, objective, x0, bounds, constraints) -> np.ndarray:
         result = minimize(
             objective, x0=x0, method="SLSQP", bounds=bounds, constraints=constraints
         )
+        print(f"DEBUG: Optimization success: {result.success}, message: {result.message}")
+        print(f"DEBUG: Optimization result.x = {result.x}")
         return result.x if result.success else None
 
     def _optimize_saturation_aware(
@@ -89,19 +87,44 @@ class ScipyOptimizer(Optimizer):
         # extract spend: np.ndarray
         current_spend = metrics["total_spend"].values
         # extract attributed conversions: np.ndarray
-        atrb_conversions = metrics["attributed_conversions"].values
+        beta_coefficients = metrics["beta_coefficient"].values 
         # get alphas & gammas
-        alphas, gammas = self.unpack_saturation_params(
-            APP_CONFIG.saturation_params,
-        )
-        x0 = self.initial_guess(total_budget, len(APP_CONFIG.media_columns))
-        bounds = self.build_bounds(len(metrics), self.min_channel_budget, total_budget)
+        saturation_params = self.ctx.state.get("saturation_params")
+        print(f"DEBUG: saturation_params = {saturation_params}")
+        alphas, gammas = self.unpack_saturation_params(saturation_params)
+        print(f"DEBUG: alphas = {alphas}, gammas = {gammas}")
+        
+        n_channels = len(self.ctx.config.channels)
+        x0 = self.initial_guess(total_budget, n_channels)
+        bounds = self.build_bounds(n_channels, self.min_channel_budget, total_budget)
         constraints = self.build_constraints(total_budget)
+        
+        print(f"DEBUG: x0 = {x0}")
+        print(f"DEBUG: bounds = {bounds}")
+        print(f"DEBUG: total_budget = {total_budget}")
 
+        # Diagnostic: compare objective values at different allocations
+        test_equal = np.array([total_budget / n_channels] * n_channels)
+        test_favoring_search = np.array([
+            total_budget * 0.5,      # 50% to search (highest beta)
+            total_budget * 0.15,     # 15% to social
+            total_budget * 0.25,     # 25% to ctv
+            total_budget * 0.1       # 10% to linear_tv (lowest beta)
+        ])
+        
         def objective(alloc):
-            return self.saturation_objective(alloc, alphas, gammas, atrb_conversions)
+            return self.saturation_objective(alloc, alphas, gammas, beta_coefficients)
+
+        obj_equal = objective(test_equal)
+        obj_search = objective(test_favoring_search)
+        
+        print(f"DEBUG: Objective at equal allocation: {obj_equal}")
+        print(f"DEBUG: Objective favoring search: {obj_search}")
+        print(f"DEBUG: Difference (search - equal): {obj_search - obj_equal}")
+        print(f"DEBUG: Beta coefficients: {beta_coefficients}")
 
         result = self.run_optimizer(objective, x0, bounds, constraints)
+        print(f"DEBUG: Optimizer result = {result}")
         return result if result is not None else current_spend
 
     def _optimize_naive(self, metrics: pd.DataFrame, total_budget: float) -> np.ndarray:

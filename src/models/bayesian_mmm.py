@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import List
 from src.core.interfaces import AttributionModel
+from src.core.context import AppContext
 
 try:
     import pymc as pm
@@ -13,28 +14,29 @@ except ImportError:
 
 
 class BayesianMMMModel(AttributionModel):
-    def __init__(self, samples=2000, tune=1000, target_accept=0.9):
+    def __init__(self, ctx: AppContext, samples=2000, tune=1000, target_accept=0.9):
+        self.ctx = ctx
         self.metrics = None
         self.trace = None
         self.model = None
         self.samples = samples
         self.tune = tune
         self.target_accept = target_accept
+        self.saturation_columns = [f"{col}_saturated" for col in ctx.config.channels]
 
     def fit(
-        self, df: pd.DataFrame, media_columns: List[str], total_spend=None
+        self, df: pd.DataFrame, total_spend=None
     ) -> pd.DataFrame:
         if not PYMC_AVAILABLE:
             raise ImportError(
                 "PyMC is required for Bayesian MMM. Install with: pip install pymc"
             )
-
         y = df["conversions"].values
-        X = df[media_columns].values
-        n_channels = len(media_columns)
+        X = df[self.saturation_columns].values
+        n_channels = len(self.ctx.config.channels)
 
         if total_spend is None:
-            total_spend = df[media_columns].sum()
+            total_spend = self.ctx.state.get("raw_df")[self.ctx.config.channels].sum()
 
         with pm.Model() as self.model:
             intercept = pm.Normal("intercept", mu=y.mean(), sigma=y.std())
@@ -59,12 +61,16 @@ class BayesianMMMModel(AttributionModel):
                 return_inferencedata=True,
                 progressbar=False,
             )
+            self.ctx.state.set("trace", self.trace) #TODO: look into meanings on this
 
-        self.metrics = self._compute_metrics(df, total_spend, media_columns)
+        self.metrics = self._compute_metrics(df, total_spend)
+        self.ctx.state.metrics = self.metrics
+        summary = self.get_posterior_summary()
+        self.ctx.state.set("posterior_summary", summary)
         return self.metrics
 
     def _compute_metrics(
-        self, df: pd.DataFrame, total_spend, media_columns: List[str]
+        self, df: pd.DataFrame, total_spend
     ) -> pd.DataFrame:
         """
         Compute attribution metrics from the posterior trace.
@@ -76,14 +82,14 @@ class BayesianMMMModel(AttributionModel):
         """
         beta_means = self.trace.posterior["betas"].mean(dim=["chain", "draw"]).values
 
-        transformed_spend = df[media_columns].sum()
+        transformed_spend = df[self.saturation_columns].sum()
         contributions = beta_means * transformed_spend.values
         total_attributed = contributions.sum()
 
         attribution_pct = (
             (contributions / total_attributed) * 100
             if total_attributed > 0
-            else np.zeros(len(media_columns))
+            else np.zeros(len(self.ctx.config.channels))
         )
 
         intercept_mean = float(
@@ -94,7 +100,7 @@ class BayesianMMMModel(AttributionModel):
         attributed_conversions = (
             (contributions / total_attributed) * media_conversions
             if total_attributed > 0
-            else np.zeros(len(media_columns))
+            else np.zeros(len(self.ctx.config.channels))
         )
 
         cost_per_conversion = np.where(
@@ -105,7 +111,7 @@ class BayesianMMMModel(AttributionModel):
 
         return pd.DataFrame(
             {
-                "channel": media_columns,
+                "channel": self.ctx.config.channels,
                 "total_spend": total_spend.values,
                 "attribution_pct": attribution_pct,
                 "attributed_conversions": attributed_conversions,

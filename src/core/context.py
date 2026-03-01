@@ -29,6 +29,7 @@ class RunState:
     errors: list[str] = field(default_factory=list)
 
     def set(self, key: str, value: Any) -> None:
+        print(f"setting state: [{key}]")
         self.artifacts[key] = value
 
     def get(self, key: str, default: Any = None) -> Any:
