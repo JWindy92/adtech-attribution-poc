@@ -13,7 +13,8 @@ class RunConfig:
     Add fields here that are determined by configuration.
     """
     channels: list[str]
-    data_source: str
+    data_dir: str
+    data_file: str
     # model_type: str
     # budget: float
     # Any schema variation lives here as Optional fields or subclasses

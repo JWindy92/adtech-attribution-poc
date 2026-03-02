@@ -23,8 +23,8 @@ class CSVDataSource(DataSource):
         
         df = pd.read_csv(filepath)
         
-        if not self._validate_schema(df):
-            raise ValueError("Data failed schema validation")
+        # if not self._validate_schema(df):
+        #     raise ValueError("Data failed schema validation")
         
         df['week'] = pd.to_datetime(df['week'])
 

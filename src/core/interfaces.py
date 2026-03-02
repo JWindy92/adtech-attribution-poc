@@ -40,3 +40,7 @@ class ContextualProcess(ABC):
 
     @abstractmethod
     def run(self) -> None: ...
+
+class SchemaMapper(ABC):
+    @abstractmethod
+    def map_schema(self, df: pd.DataFrame) -> pd.DataFrame: ...

@@ -11,7 +11,7 @@ Where:
 
 No dependencies outside numpy. Pure function - fully testable.
 """
-
+#! Deprecated
 import numpy as np
 from typing import Union
 

@@ -26,13 +26,13 @@ from src.helpers.visualization.analysis import *
 # TODO: load config from file
 ctx = AppContext(config=RunConfig(
     channels=["ctv_spend", "social_spend", "search_spend", "linear_tv_spend"],
-    data_source=Path(__file__).parent.parent.parent / "data" / "synthetic" / "synthetic_mmm_data.csv",
+    data_dir=Path(__file__).parent.parent.parent / "data" / "synthetic",
+    data_file="synthetic_mmm_data.csv"
    ))
 
 def main():
-    csv_dir = Path(__file__).parent.parent.parent / "data"
-    datasource = CSVDataSource(ctx, data_dir=csv_dir)
-    df = datasource.load_data(ctx.config.data_source)
+    datasource = CSVDataSource(ctx, data_dir=ctx.config.data_dir)
+    df = datasource.load_data(ctx.config.data_file)
 
     
     normalizer = NormalizeTransformer(ctx=ctx)

@@ -11,7 +11,7 @@ This is industry-standard practice from Google's Lightweight MMM research.
 import numpy as np
 from typing import Tuple
 
-
+#! Deprecated
 def calculate_gamma_prior(raw_spend_data: np.ndarray) -> Tuple[np.ndarray, float]:
     """
     Calculate data-driven priors for gamma (half-saturation point parameter).
