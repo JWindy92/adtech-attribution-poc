@@ -15,11 +15,11 @@ DEFAULT_SATURATION_PARAMS = {
     "social_spend": {"alpha": 1.3, "gamma": 25000},
 }
 
-DEFAULT_MMM_PARAMS = {
-    "samples": 2000,
-    "tune": 1000,
-    "target_accept": 0.9,
-}
+# DEFAULT_MMM_PARAMS = {
+#     "samples": 2000,
+#     "tune": 1000,
+#     "target_accept": 0.9,
+# }
 
 
 class AppConfig:

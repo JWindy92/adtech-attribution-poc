@@ -1,0 +1,129 @@
+import pandas as pd
+import numpy as np
+from typing import List
+from src.core.interfaces import AttributionModel
+from src.core.context import AppContext
+
+try:
+    import pymc as pm
+    import arviz as az
+
+    PYMC_AVAILABLE = True
+except ImportError:
+    PYMC_AVAILABLE = False
+
+
+class BayesianMMMModel(AttributionModel):
+    def __init__(self, ctx: AppContext, samples=2000, tune=1000, target_accept=0.9):
+        self.ctx = ctx
+        self.metrics = None
+        self.trace = None
+        self.model = None
+        self.samples = samples
+        self.tune = tune
+        self.target_accept = target_accept
+        self.saturation_columns = [f"{col}_saturated" for col in ctx.config.channels]
+
+    def fit(
+        self, df: pd.DataFrame, total_spend=None
+    ) -> pd.DataFrame:
+        if not PYMC_AVAILABLE:
+            raise ImportError(
+                "PyMC is required for Bayesian MMM. Install with: pip install pymc"
+            )
+        y = df["conversions"].values
+        X = df[self.saturation_columns].values
+        n_channels = len(self.ctx.config.channels)
+
+        if total_spend is None:
+            total_spend = self.ctx.state.get("raw_df")[self.ctx.config.channels].sum()
+
+        with pm.Model() as self.model:
+            intercept = pm.Normal("intercept", mu=y.mean(), sigma=y.std())
+
+            # betas = pm.HalfNormal('betas', sigma=1, shape=n_channels)
+            betas = pm.HalfNormal(
+                "betas",
+                sigma=y.mean() / (X.mean() * n_channels + 1e-8),
+                shape=n_channels,
+            )
+
+            sigma = pm.HalfNormal("sigma", sigma=y.std())
+
+            mu = intercept + pm.math.dot(X, betas)
+
+            likelihood = pm.Normal("conversions", mu=mu, sigma=sigma, observed=y)
+
+            self.trace = pm.sample(
+                draws=self.samples,
+                tune=self.tune,
+                target_accept=self.target_accept,
+                return_inferencedata=True,
+                progressbar=False,
+            )
+            self.ctx.state.set("trace", self.trace) #TODO: look into meanings on this
+
+        self.metrics = self._compute_metrics(df, total_spend)
+        self.ctx.state.metrics = self.metrics
+        summary = self.get_posterior_summary()
+        self.ctx.state.set("posterior_summary", summary)
+        return self.metrics
+
+    def _compute_metrics(
+        self, df: pd.DataFrame, total_spend
+    ) -> pd.DataFrame:
+        """
+        Compute attribution metrics from the posterior trace.
+        Separated from fit() so metrics math can be tested without running MCMC.
+
+        Key invariants:
+        - contributions = beta_means * transformed_spend  (NOT raw dollars)
+        - attributed_conversions sums to total_conversions minus baseline
+        """
+        beta_means = self.trace.posterior["betas"].mean(dim=["chain", "draw"]).values
+
+        transformed_spend = df[self.saturation_columns].sum()
+        contributions = beta_means * transformed_spend.values
+        total_attributed = contributions.sum()
+
+        attribution_pct = (
+            (contributions / total_attributed) * 100
+            if total_attributed > 0
+            else np.zeros(len(self.ctx.config.channels))
+        )
+
+        intercept_mean = float(
+            self.trace.posterior["intercept"].mean(dim=["chain", "draw"]).values
+        )
+        baseline_total = intercept_mean * len(df)
+        media_conversions = max(df["conversions"].sum() - baseline_total, 0)
+        attributed_conversions = (
+            (contributions / total_attributed) * media_conversions
+            if total_attributed > 0
+            else np.zeros(len(self.ctx.config.channels))
+        )
+
+        cost_per_conversion = np.where(
+            attributed_conversions > 0,
+            total_spend.values / attributed_conversions,
+            np.inf,
+        )
+
+        return pd.DataFrame(
+            {
+                "channel": self.ctx.config.channels,
+                "total_spend": total_spend.values,
+                "attribution_pct": attribution_pct,
+                "attributed_conversions": attributed_conversions,
+                "cost_per_conversion": cost_per_conversion,
+                "beta_coefficient": beta_means,
+            }
+        )
+
+    def get_contributions(self) -> pd.DataFrame:
+        return self.metrics
+
+    def get_posterior_summary(self) -> pd.DataFrame:
+        if self.trace is None:
+            return None
+        return az.summary(self.trace, var_names=["betas", "intercept"])

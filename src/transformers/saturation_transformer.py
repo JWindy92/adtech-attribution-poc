@@ -107,8 +107,9 @@ class SaturationTransformer(Transformer):
         for col in media_columns:
             if col in self.saturation_params:
                 params = self.saturation_params[col]
+                col_name = f"{col}_adstock" if f"{col}_adstock" in df_transformed.columns else col
                 saturated = self.apply_saturation(
-                    df[col].values,
+                    df[col_name].values,
                     alpha=params['alpha'],
                     gamma=params['gamma']
                 )

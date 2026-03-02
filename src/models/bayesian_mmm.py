@@ -12,118 +12,150 @@ try:
 except ImportError:
     PYMC_AVAILABLE = False
 
-
 class BayesianMMMModel(AttributionModel):
-    def __init__(self, ctx: AppContext, samples=2000, tune=1000, target_accept=0.9):
+    def __init__(self, ctx: AppContext, samples: int = 2000, tune: int = 1000, target_accept: float = 0.9):
         self.ctx = ctx
-        self.metrics = None
-        self.trace = None
-        self.model = None
         self.samples = samples
         self.tune = tune
         self.target_accept = target_accept
-        self.saturation_columns = [f"{col}_saturated" for col in ctx.config.channels]
+        
+        # Will be populated by fit()
+        self.model = None
+        self.trace = None
+        self.posterior_summary = None
+        self.contributions = None
+        
+        # Metadata
+        self.media_columns = None
+        self.spend_data = None
+        self.conversions = None
 
-    def fit(
-        self, df: pd.DataFrame, total_spend=None
-    ) -> pd.DataFrame:
+    def fit(self, df: pd.DataFrame, media_columns: List[str], raw_df: pd.DataFrame = None) -> pd.DataFrame:
+        """
+        Fit Bayesian MMM model to data using MCMC sampling.
+        
+        Parameters
+        ----------
+        df : pd.DataFrame
+            DataFrame with media spend columns and conversions column
+        media_columns : List[str]
+            Names of columns containing media spend data
+        raw_df : pd.DataFrame, optional
+            Raw spending data (unused in current implementation)
+        
+        Returns
+        -------
+        pd.DataFrame
+            Weekly contributions by channel (n_weeks x n_channels)
+        """
         if not PYMC_AVAILABLE:
-            raise ImportError(
-                "PyMC is required for Bayesian MMM. Install with: pip install pymc"
-            )
-        y = df["conversions"].values
-        X = df[self.saturation_columns].values
-        n_channels = len(self.ctx.config.channels)
-
-        if total_spend is None:
-            total_spend = self.ctx.state.get("raw_df")[self.ctx.config.channels].sum()
-
-        with pm.Model() as self.model:
-            intercept = pm.Normal("intercept", mu=y.mean(), sigma=y.std())
-
-            # betas = pm.HalfNormal('betas', sigma=1, shape=n_channels)
-            betas = pm.HalfNormal(
-                "betas",
-                sigma=y.mean() / (X.mean() * n_channels + 1e-8),
-                shape=n_channels,
-            )
-
-            sigma = pm.HalfNormal("sigma", sigma=y.std())
-
-            mu = intercept + pm.math.dot(X, betas)
-
-            likelihood = pm.Normal("conversions", mu=mu, sigma=sigma, observed=y)
-
+            raise RuntimeError("PyMC not available - install with: pip install pymc")
+        
+        # Store metadata
+        self.media_columns = media_columns
+        n_channels = len(media_columns)
+        
+        # Extract spend and conversions
+        spend_data = df[media_columns].values  # shape: (n_weeks, n_channels)
+        conversions = df['conversions'].values  # shape: (n_weeks,)
+        
+        self.spend_data = spend_data
+        self.conversions = conversions
+        
+        # Calculate data-driven gamma priors
+        from src.core.prior_calculation import calculate_gamma_prior
+        gamma_mu, gamma_sigma = calculate_gamma_prior(spend_data)
+        
+        # Build PyMC model
+        with pm.Model() as model:
+            # Priors for saturation parameters (per channel)
+            alpha = pm.Uniform('alpha', lower=0.1, upper=3.0, shape=n_channels)
+            gamma = pm.Normal('gamma', mu=gamma_mu, sigma=gamma_sigma, shape=n_channels)
+            
+            # Priors for effectiveness (per channel)
+            beta = pm.Exponential('beta', lam=0.01, shape=n_channels)
+            
+            # Prior for baseline
+            intercept = pm.Normal('intercept', mu=conversions.mean(), sigma=conversions.std())
+            
+            # Likelihood noise
+            sigma = pm.HalfNormal('sigma', sigma=conversions.std())
+            
+            # Apply Hill saturation transformation
+            from src.core.saturation import hill_saturation
+            saturated = hill_saturation(spend_data, alpha=alpha, gamma=gamma)  # shape: (n_weeks, n_channels)
+            
+            # Linear combination: dot product of saturated spend and beta
+            mu = intercept + pm.math.dot(saturated, beta)  # shape: (n_weeks,)
+            
+            # Likelihood
+            observed = pm.Normal('observed', mu=mu, sigma=sigma, observed=conversions)
+            
+            # MCMC sampling
             self.trace = pm.sample(
                 draws=self.samples,
                 tune=self.tune,
                 target_accept=self.target_accept,
                 return_inferencedata=True,
-                progressbar=False,
+                progressbar=True,
+                random_seed=42
             )
-            self.ctx.state.set("trace", self.trace) #TODO: look into meanings on this
+        
+        self.model = model
+        
+        # Calculate posterior mean contributions per channel per week
+        posterior_alpha = self.trace.posterior['alpha'].values.mean(axis=(0, 1))
+        posterior_gamma = self.trace.posterior['gamma'].values.mean(axis=(0, 1))
+        posterior_beta = self.trace.posterior['beta'].values.mean(axis=(0, 1))
+        posterior_intercept = self.trace.posterior['intercept'].values.mean(axis=(0, 1))
+        
+        saturated_posterior = hill_saturation(spend_data, alpha=posterior_alpha, gamma=posterior_gamma)
+        contributions = saturated_posterior * posterior_beta  # (n_weeks, n_channels)
+        
+        intercept_per_channel = posterior_intercept / n_channels
+        total_contributions = contributions + intercept_per_channel
 
-        self.metrics = self._compute_metrics(df, total_spend)
-        self.ctx.state.metrics = self.metrics
-        summary = self.get_posterior_summary()
-        self.ctx.state.set("posterior_summary", summary)
-        return self.metrics
-
-    def _compute_metrics(
-        self, df: pd.DataFrame, total_spend
-    ) -> pd.DataFrame:
-        """
-        Compute attribution metrics from the posterior trace.
-        Separated from fit() so metrics math can be tested without running MCMC.
-
-        Key invariants:
-        - contributions = beta_means * transformed_spend  (NOT raw dollars)
-        - attributed_conversions sums to total_conversions minus baseline
-        """
-        beta_means = self.trace.posterior["betas"].mean(dim=["chain", "draw"]).values
-
-        transformed_spend = df[self.saturation_columns].sum()
-        contributions = beta_means * transformed_spend.values
-        total_attributed = contributions.sum()
-
-        attribution_pct = (
-            (contributions / total_attributed) * 100
-            if total_attributed > 0
-            else np.zeros(len(self.ctx.config.channels))
+        contribution_columns = [f"{col}_contribution" for col in media_columns]
+        contribution_df = pd.DataFrame(
+            total_contributions,
+            columns=contribution_columns
         )
-
-        intercept_mean = float(
-            self.trace.posterior["intercept"].mean(dim=["chain", "draw"]).values
-        )
-        baseline_total = intercept_mean * len(df)
-        media_conversions = max(df["conversions"].sum() - baseline_total, 0)
-        attributed_conversions = (
-            (contributions / total_attributed) * media_conversions
-            if total_attributed > 0
-            else np.zeros(len(self.ctx.config.channels))
-        )
-
-        cost_per_conversion = np.where(
-            attributed_conversions > 0,
-            total_spend.values / attributed_conversions,
-            np.inf,
-        )
-
-        return pd.DataFrame(
-            {
-                "channel": self.ctx.config.channels,
-                "total_spend": total_spend.values,
-                "attribution_pct": attribution_pct,
-                "attributed_conversions": attributed_conversions,
-                "cost_per_conversion": cost_per_conversion,
-                "beta_coefficient": beta_means,
-            }
-        )
+        
+        # Add contribution columns to the ORIGINAL dataframe
+        output_df = df.copy()
+        for i, col in enumerate(contribution_columns):
+            output_df[col] = contribution_df[col]
+        
+        self.contributions = output_df[contribution_columns] 
+        
+        # Calculate posterior summary for storage
+        self.posterior_summary = az.summary(self.trace)
+        
+        return output_df
 
     def get_contributions(self) -> pd.DataFrame:
-        return self.metrics
+        """
+        Get weekly channel contributions (output of fit).
+        
+        Returns
+        -------
+        pd.DataFrame
+            Shape: (n_weeks, n_channels)
+            Values: Mean posterior contribution of each channel each week
+        """
+        if self.contributions is None:
+            raise RuntimeError("Model not fitted yet. Call fit() first.")
+        return self.contributions
 
     def get_posterior_summary(self) -> pd.DataFrame:
-        if self.trace is None:
-            return None
-        return az.summary(self.trace, var_names=["betas", "intercept"])
+        """
+        Get posterior summary with convergence diagnostics.
+        
+        Returns
+        -------
+        pd.DataFrame
+            Posterior summary from arviz with columns: mean, sd, hdi_low, hdi_high, r_hat, etc.
+        """
+        if self.posterior_summary is None:
+            raise RuntimeError("Model not fitted yet. Call fit() first.")
+        return self.posterior_summary

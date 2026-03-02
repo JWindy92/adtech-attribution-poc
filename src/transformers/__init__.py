@@ -1,3 +1,5 @@
 from .passthrough import PassthroughTransformer
 from .adstock_transformer import AdstockTransformer
+from .sqrt_saturation_transformer import SqrtSaturationTransformer
 from .saturation_transformer import SaturationTransformer
+from .normalize_transformer import NormalizeTransformer
