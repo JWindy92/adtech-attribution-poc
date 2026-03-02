@@ -12,10 +12,7 @@ from src.transformers import (
     AdstockTransformer,
     SqrtSaturationTransformer,
 )
-from src.models import SpendProportionalModel
-from src.models.bayesian_mmm import BayesianMMMModel
 from src.datasources.csv import CSVDataSource
-from src.optimizers import ScipyOptimizer
 import src.config as config
 from src.pipeline import Pipeline
 from src.core.context import AppContext, RunConfig
@@ -54,8 +51,6 @@ def main():
     print(model.summary())
     pprint(model.params)
     describe_results_saturated(model, transformed_data)
-
-    plot_residuals(transformed_data, model)
 
 def describe_results_saturated(model, df):
     for col in ctx.config.channels:
