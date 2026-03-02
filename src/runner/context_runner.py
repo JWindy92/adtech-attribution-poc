@@ -26,14 +26,13 @@ from src.helpers.visualization.analysis import *
 # TODO: load config from file
 ctx = AppContext(config=RunConfig(
     channels=["ctv_spend", "social_spend", "search_spend", "linear_tv_spend"],
-    model_type="bayesian_mmm",
-    # budget=500_000.0,
-))
+    data_source=Path(__file__).parent.parent.parent / "data" / "synthetic" / "synthetic_mmm_data.csv",
+   ))
 
 def main():
     csv_dir = Path(__file__).parent.parent.parent / "data"
     datasource = CSVDataSource(ctx, data_dir=csv_dir)
-    df = datasource.load_data("synthetic_mmm_data.csv")
+    df = datasource.load_data(ctx.config.data_source)
 
     
     normalizer = NormalizeTransformer(ctx=ctx)
@@ -78,7 +77,7 @@ def describe_linear_results(model):
         print(f"For every $1000 spent, we get {coef_1k:.4f} conversions.")
         print(f"Estimated CPA: ${cpa:.2e}")
 
-def get_alphas(alpha_store="data/alpha_params.csv", force=False):
+def get_alphas(alpha_store="data/lookup/alpha_params.csv", force=False):
     alpha_path = Path(alpha_store)
     if not force and (alpha_path.exists() and alpha_path.is_file()):
         return pd.read_csv(alpha_path)
